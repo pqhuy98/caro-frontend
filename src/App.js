@@ -1,26 +1,70 @@
 import React from 'react';
-import logo from './logo.svg';
-import './App.css';
+import './App.scss';
+import Game from "caro-core/dist"
+import TopBar from "./component/TopBar";
+import Board from "./component/Board";
 
-function App() {
-  return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
-  );
+export default class App extends React.Component {
+    constructor(props) {
+        super(props);
+        this.state = {
+            game: new Game(),
+            reds: [],
+        }
+    }
+
+    componentDidMount() {
+        // let H = this.board.offsetHeight;
+        // let W = this.board.offsetWidth;
+        // let {w, h} = viewport();
+        // console.log(this.board.getBoundingClientRect());
+        // console.log(H, W);
+        // console.log(h, w);
+    }
+
+    play(player, x, y) {
+        this.state.game.play(player, x, y);
+        this.forceUpdate();
+    }
+
+    newGame() {
+        this.setState({
+            game: new Game(),
+        });
+    }
+
+    undo() {
+        this.state.game.undo();
+        this.forceUpdate();
+    }
+
+    render() {
+        let reds = [];
+        let over = this.state.game.checkGameOver();
+        if (over !== true && over !== false) {
+            reds = over;
+        }
+        return (<div>
+            <TopBar
+                newGame={this.newGame.bind(this)}
+                undo={this.undo.bind(this)}
+            />
+            <Board
+                ref={(el) => {this.board = el}}
+                game={this.state.game}
+                reds={reds}
+                gameOver={this.state.game.gameOver}
+                play={this.play.bind(this)}
+            />
+        </div>);
+    }
 }
 
-export default App;
+function viewport() {
+    var e = window, a = 'inner';
+    if (!( 'innerWidth' in window )) {
+        a = 'client';
+        e = document.documentElement || document.body;
+    }
+    return { w : e[ a+'Width' ] , h : e[ a+'Height' ] }
+}
