@@ -23,26 +23,33 @@ export default class App extends React.Component {
     }
 
     play(player, x, y) {
-        this.state.game.play(player, x, y);
-        this.forceUpdate();
+        let next = this.state.game.play(player, x, y);
+        if (next !== null) {
+            this.setState({
+                game: next,
+            });
+        }
     }
-
+    undo() {
+        let next = this.state.game.undo();
+        if (next !== null) {
+            this.setState({
+                game: next,
+            });
+        }
+    }
     newGame() {
         this.setState({
             game: new Game(),
         });
     }
 
-    undo() {
-        this.state.game.undo();
-        this.forceUpdate();
-    }
 
     render() {
         let reds = [];
-        let over = this.state.game.checkGameOver();
-        if (over !== true && over !== false) {
-            reds = over;
+        let over = this.state.game.gameOver;
+        if (over === true) {
+            reds = this.state.game.findFive();
         }
         return (<div>
             <TopBar
