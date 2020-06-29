@@ -1,8 +1,8 @@
 import React from 'react';
 import '../App.scss';
-import { ReactComponent as XMark } from '../x-mark.svg';
-import { ReactComponent as OMark } from '../o-mark.svg';
-import { ReactComponent as EmptyMark } from '../empty-mark.svg';
+import { ReactComponent as XMark } from '../resource/x-mark.svg';
+import { ReactComponent as OMark } from '../resource/o-mark.svg';
+import { ReactComponent as EmptyMark } from '../resource/empty-mark.svg';
 
 export default class Grid extends React.Component {
     constructor(props) {
@@ -43,7 +43,7 @@ export default class Grid extends React.Component {
         let symbol = this.props.symbol || null;
         let classLastMove = this.props.classLastMove;
         let occupied = (symbol !== null) ? " occupied" : " unoccupied";
-        let pointer = (!this.props.gameOver && symbol === null) ? " pointer" : "";
+        let pointer = (this.props.myTurn && !this.props.gameOver && symbol === null) ? " pointer" : "";
         let onClick = (symbol === null) ? this.props.play : null;
         let red = (this.props.red ? " red" : "");
         // console.log(onClick);
@@ -55,7 +55,7 @@ export default class Grid extends React.Component {
                 internal = <OMark className="symbol"/>
             }
         } else {
-            if (this.state.hovered && !this.props.gameOver) {
+            if (this.props.myTurn && this.state.hovered && !this.props.gameOver) {
                 if (this.props.currentPlayer === "X") {
                     internal = <XMark className="symbol"/>;
                 } else {

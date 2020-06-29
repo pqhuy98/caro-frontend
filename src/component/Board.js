@@ -10,7 +10,7 @@ export default class Board extends React.Component {
 		let set = {};
 		let mxX = 30;
 		let mxY = 15;
-		let lastPlayer = "X";
+		let lastPlayer = "O";
 		let lastMove = "";
 		moves.forEach((m) => {
 			let args = m.split(":");
@@ -22,6 +22,7 @@ export default class Board extends React.Component {
 			lastMove = pos;
 		});
 		let currentPlayer = (lastPlayer === "X") ? "O" : "X";
+        let myTurn = this.props.game.isCurrentPlayer(this.props.playerId);
 		return (
 			<div>
 				<table className="board"><tbody>
@@ -40,6 +41,7 @@ export default class Board extends React.Component {
 										gameOver={this.props.gameOver}
 										play={() => this.props.play(currentPlayer, x, y)}
 										red={(x===0 && y===0) || this.props.reds.includes(set[pos]+":"+pos)}
+               							myTurn={myTurn}
 									/>
 								})
 							}</tr>
