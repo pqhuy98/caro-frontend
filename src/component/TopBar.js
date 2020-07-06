@@ -4,10 +4,27 @@ import '../App.scss';
 export default class TopBar extends React.Component {
 	render() {
 		return <div className="topbar">
-			{this.props.game === null && <button className="button"
-				onClick={this.props.finding ? this.props.stopFinding: this.props.findMatch}>
-				{this.props.finding ? "Stop finding": "Find match"}
+			{this.props.playerId+"\t"}
+			{this.props.status === "none" && this.props.readyToFind && <button className="button"
+				onClick={this.props.findMatch}>
+				Find match
 			</button>}
+
+			{this.props.status === "finding" && <button className="button"
+				onClick={this.props.stopFinding}>
+				Stop finding
+			</button>}
+
+			{
+				this.props.status === "inMatch" && this.props.game === null &&
+				// <button className="button"
+				// 	onClick={this.props.connect}>
+				// 	Reconnect
+				// </button>
+				"Connecting to game..."
+			}
+
+
 			{this.props.game !== null && [
 				<button className="button" key="rmk"
 					onClick={this.props.newGame}
@@ -21,7 +38,7 @@ export default class TopBar extends React.Component {
 						this.props.game.moves.length === 0}>
 					Undo
 				</button>,
-				<button className="button" key="quit"onClick={this.props.abandon}>
+				<button className="button" key="quit"onClick={this.props.quit}>
 					Quit
 				</button>,
 			]}

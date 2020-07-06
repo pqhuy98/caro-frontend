@@ -3,15 +3,17 @@ import './App.scss';
 import Game from "caro-core/dist"
 import TopBar from "./component/TopBar";
 import Board from "./component/Board";
-import socketIOClient from "socket.io-client";
+import MatchMaking from "./lib/matchMaking";
+import io from "socket.io-client";
 import { v4 as uuidv4 } from "uuid";
 import toastr from "toastr";
 import "toastr/build/toastr.min.css";
 
 toastr.options.timeOut = 10000;
 
+const HOST = "http://localhost:8080";
 
-const playerId = uuidv4();
+const playerId = prompt("Player ID:", uuidv4());
 console.log(playerId+"");
 
 export default class App extends React.Component {
@@ -19,131 +21,138 @@ export default class App extends React.Component {
         super(props);
 
         this.state = {
-            game: null,
             playerId: playerId,
-            mmSocket: null,
+
+
+            matchMaking: new MatchMaking({
+                host: HOST,
+                playerId
+            }),
+
             gameSocket: null,
             matchId: null,
+            game: null,
         }
     }
 
+    getPlayerStatus(callback) {
+        fetch(HOST+"/status/"+playerId)
+            .then(res => res.json())
+            .then((result) => {
+                console.log(result);
+                this.setState(result, () => {
+                    if (this.state.status === "inMatch" && !this.state.gameSocket) {
+                        // Reconnect
+                        this.connectMatch();
+                    }
+                });
+            });
+    }
+
+
     componentDidMount() {
-        // this.findMatch();
+        this.state.matchMaking._newConnection(
+            () => this.getPlayerStatus(),
+        );
     }
 
     // Match making
 
-    findMatch() {
-        console.log("find match");
-        // Socket
-        const socket = socketIOClient("http://192.168.26.120:8080", {path:"/match_making"});
-        socket.on("connect", () => {
-            this.setState({
-                mmSocket: socket,
-            }, () => {
-                // Authentication
-                socket.emit("AUTH", playerId);
-                // Find match
-                socket.emit("FIND_MATCH", playerId, (data) => {
-                    console.log(data);
-                    if (data !== "OK") {
-                        socket.disconnect();
-                    }
-                });
-                // Found
-                socket.on("FOUND_MATCH", (matchId) => {
-                    console.log("found", matchId);                            
-                    this.setState({
-                        matchId: matchId,
-                    }, () => {
-                        this.connectMatch(() => {
-                            socket.disconnect();
-                        });
-                    });
-                });
-            })
-        });
-        socket.on("disconnect", () => {
-            console.log("MM disconnect");
-            this.setState({
-                mmSocket: null,
-            });
-        });
-    }
-
-    stopFinding() {
-        console.log("stop finding");
-        this.state.mmSocket.emit("STOP_FINDING", "", (data) => {
-            console.log(data);
-            this.state.mmSocket.disconnect();
-
+    findMatch(find) {
+        this.state.matchMaking.find({
+            onAck: () => this.getPlayerStatus(),
+            onFound: () => this.getPlayerStatus(),
         })
     }
 
-    connectMatch(callback) {
-        console.log("connect match");
-        let matchId = this.state.matchId;
-        // Socket
-        const socket = socketIOClient("http://192.168.26.120:8080", {path:"/on_match"});
-        socket.on("connect", () => {
-            console.log(socket);
-            // Authentication
-            this.setState({
-                gameSocket: socket,
-            }, () => {
-                socket.emit("AUTH", playerId+":"+matchId);
-                socket.on("JOIN", (data) => {
-                    console.log("join", data);
-                });
-                socket.on("LATEST", (data) => {
-                    let game = new Game();
-                    Object.assign(game, JSON.parse(data));
-                    this.setState({
-                        game: game,
-                    }, callback);
-                })
-                socket.on("ACTION", (data) => {
-                    let action = JSON.parse(data);
-                    this.performAction(action);
-                });
-                let quitters = {};
-                socket.on("DISCONNECT", (playerId) => {
-                    console.log("disconnect");
-                    console.log(quitters);
-                    if (!quitters[playerId]) {
-                        toastr.warning('Your opponent is having a network problem.');
-                    }
-                });
-                socket.on("ABANDON", (playerId) => {
-                    console.log("abandon");
-                    toastr.warning('Your opponent has abandoned the game.');
-                    quitters[playerId] = true;
-                });
-            });
+    stopFinding() {
+        this.state.matchMaking.stop({
+            onAck: () => this.getPlayerStatus(),
         });
-        socket.on("disconnect", () => {
+    }
+
+    connectMatch(matchId = null) {
+        console.log(matchId);
+        matchId = matchId || this.state.matchId;
+        console.log("connect match", matchId);
+        let socket = io(HOST+"/playing", { forceNew: true });
+        socket.on("connect", () => {
+            // Authentication
+            socket.emit("authentication", playerId);
+        })
+        .on("authenticated", () => {
+            // Connect to match Id
+            socket.emit("CONNECT", matchId, (data) => {
+                console.log(data);
+                if (data === "OK") {
+                    console.log("connected to match", matchId);
+                    this.setState({
+                        gameSocket: socket,
+                    });
+                } else {
+                    socket.disconnect();
+                }
+            });
+        })
+        .on("unauthorized", data => {
+            console.log("Error:", data);
+        })
+        .on("CONNECT", (data) => {
+            console.log("player connected to match, playerId:", data);
+        })
+        .on("LATEST", (data) => {
+            console.log("latest state", data);
+            let game = new Game();
+            Object.assign(game, JSON.parse(data));
+            this.setState({
+                game: game,
+            });
+        })
+        .on("ACTION", (data) => {
+            let action = JSON.parse(data);
+            console.log("action", action);
+            this.performAction(action);
+        })
+
+        let quitters = {};
+        socket.on("QUIT", (data) => {
+            let playerId = JSON.parse(data).playerId;
+            console.log("quit", playerId);
+            toastr.warning('Your opponent has quitted the game.');
+            quitters[playerId] = true;
+        })
+        .on("DISCONNECT", (data) => {
+            let playerId = JSON.parse(data).playerId;
+            console.log("disconnect");
+            console.log(quitters);
+            if (!quitters[playerId]) {
+                toastr.warning("Player " + playerId + " is having a network problem.");
+            }
+        })
+        .on("disconnect", () => {
+            toastr.clear();
             console.log("game disconnect");
             this.setState({
+                game: null,
                 gameSocket: null,
-            });
+            }, () => this.getPlayerStatus());
         });    
     }
 
-    abandonMatch() {
+    quitMatch() {
         console.log("disconnect match");
         if (this.state.gameSocket) {
-            this.state.gameSocket.emit("ABANDON", "");
+            this.state.gameSocket.emit("QUIT", "");
             this.state.gameSocket.disconnect();
             this.setState({
                 gameSocket: null,
                 game: null,
             });
         }
-        toastr.clear();
     }
 
     // Send actions to server
-    inputPlay(color, x, y) {
+    play(color, x, y) {
         if (!this.state.gameSocket) return;
         console.log(color, x, y);
         let action = {
@@ -152,7 +161,7 @@ export default class App extends React.Component {
         }
         this.state.gameSocket.emit("ACTION", JSON.stringify(action));
     }
-    inputUndo() {
+    undo() {
         if (!this.state.gameSocket) return;
         let action = {
             type: "UNDO",
@@ -160,7 +169,7 @@ export default class App extends React.Component {
         }
         this.state.gameSocket.emit("ACTION", JSON.stringify(action));
     }
-    inputNewGame() {
+    newGame() {
         if (!this.state.gameSocket) return;
         let action = {
             type: "NEW_GAME",
@@ -192,15 +201,18 @@ export default class App extends React.Component {
                 reds = this.state.game.findFive();
             }            
         }
+        console.log(this.state.matchMaking);
         return (<div>
             <TopBar
+                status={this.state.status}
+                readyToFind={this.state.matchMaking.ready}
                 game={this.state.game}
                 findMatch={this.findMatch.bind(this)}
                 stopFinding={this.stopFinding.bind(this)}
-                finding={this.state.mmSocket}
-                newGame={this.inputNewGame.bind(this)}
-                undo={this.inputUndo.bind(this)}
-                abandon={this.abandonMatch.bind(this)}
+                connect={() => this.connectMatch(null)}
+                newGame={this.newGame.bind(this)}
+                undo={this.undo.bind(this)}
+                quit={this.quitMatch.bind(this)}
                 playerId={playerId}
             />
             {this.state.game && <Board
@@ -208,7 +220,7 @@ export default class App extends React.Component {
                 game={this.state.game}
                 reds={reds}
                 gameOver={this.state.game.gameOver}
-                play={this.inputPlay.bind(this)}
+                play={this.play.bind(this)}
                 playerId={playerId}
             />}
         </div>);
