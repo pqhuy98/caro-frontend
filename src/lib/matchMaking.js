@@ -26,10 +26,10 @@ export default class MatchMaking {
                 console.log("Error:", data);
                 this.unauthorized = true;
             })
-            .on("FOUND_MATCH", (matchId) => {
-                console.log("found match", matchId);
+            .on("FOUND_MATCH", (match) => {
+                console.log("found match", match);
                 console.log(this.onFound);
-                this.onFound(matchId);
+                this.onFound(match);
                 socket.disconnect();
             })
             .on("disconnect", () => {

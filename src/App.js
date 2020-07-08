@@ -1,20 +1,20 @@
 import React from 'react';
+import { v4 as uuidv4 } from "uuid";
+import _ from "lodash";
+import toastr from "toastr";
+import "toastr/build/toastr.min.css";
 import './App.scss';
 import Game from "caro-core/dist"
 import TopBar from "./component/TopBar";
 import Board from "./component/Board";
 import MatchMaking from "./lib/matchMaking";
-import io from "socket.io-client";
-import { v4 as uuidv4 } from "uuid";
-import toastr from "toastr";
-import "toastr/build/toastr.min.css";
-
-toastr.options.timeOut = 10000;
+import MatchConnection from "./lib/matchConnection";
 
 const HOST = "http://localhost:8080";
-
 const playerId = prompt("Player ID:", uuidv4());
 console.log(playerId+"");
+
+toastr.options.timeOut = 10000;
 
 export default class App extends React.Component {
     constructor(props) {
@@ -29,7 +29,11 @@ export default class App extends React.Component {
                 playerId
             }),
 
-            gameSocket: null,
+            matchConnection: new MatchConnection({
+                host: HOST,
+                playerId
+            }),
+
             matchId: null,
             game: null,
         }
@@ -54,6 +58,39 @@ export default class App extends React.Component {
         this.state.matchMaking._newConnection(
             () => this.getPlayerStatus(),
         );
+        this.state.matchConnection.connect();
+        this.state.matchConnection
+            .onConnected(_.noop)
+            .onUnauthorized((data) => {
+                toastr.error("Cannot connect to match: " + data);
+            })
+            .onPlayerConnect((data) => {
+                toastr.info("Player " + data.playerId + " has joined the game.");
+            })
+            .onPlayerDisconnect((data) => {
+                toastr.warning("Player " + data.playerId + " has disconnected from the game.");
+            })
+            .onPlayerQuit((data) => {
+                toastr.warning("Player " + data.playerId + " has quit the game.");
+            })
+            .onLatest((obj) => {
+                let game = new Game();
+                Object.assign(game, obj);
+                this.setState({ game: game });
+            })
+            .onAction((action) => {
+                let next = this.state.game.act(action);
+                if (next) {
+                    this.setState({ game: next });
+                }
+            })
+            .onDisconnect((action) => {
+                toastr.clear();
+                this.setState(
+                    { game: null },
+                    () => this.getPlayerStatus()
+                );
+            })
     }
 
     // Match making
@@ -74,123 +111,31 @@ export default class App extends React.Component {
     connectMatch(matchId = null) {
         console.log(matchId);
         matchId = matchId || this.state.matchId;
-        console.log("connect match", matchId);
-        let socket = io(HOST+"/playing", { forceNew: true });
-        socket.on("connect", () => {
-            // Authentication
-            socket.emit("authentication", playerId);
-        })
-        .on("authenticated", () => {
-            // Connect to match Id
-            socket.emit("CONNECT", matchId, (data) => {
-                console.log(data);
-                if (data === "OK") {
-                    console.log("connected to match", matchId);
-                    this.setState({
-                        gameSocket: socket,
-                    });
-                } else {
-                    socket.disconnect();
-                }
-            });
-        })
-        .on("unauthorized", data => {
-            console.log("Error:", data);
-        })
-        .on("CONNECT", (data) => {
-            console.log("player connected to match, playerId:", data);
-        })
-        .on("LATEST", (data) => {
-            console.log("latest state", data);
-            let game = new Game();
-            Object.assign(game, JSON.parse(data));
-            this.setState({
-                game: game,
-            });
-        })
-        .on("ACTION", (data) => {
-            let action = JSON.parse(data);
-            console.log("action", action);
-            this.performAction(action);
-        })
-
-        let quitters = {};
-        socket.on("QUIT", (data) => {
-            let playerId = JSON.parse(data).playerId;
-            console.log("quit", playerId);
-            toastr.warning('Your opponent has quitted the game.');
-            quitters[playerId] = true;
-        })
-        .on("DISCONNECT", (data) => {
-            let playerId = JSON.parse(data).playerId;
-            console.log("disconnect");
-            console.log(quitters);
-            if (!quitters[playerId]) {
-                toastr.warning("Player " + playerId + " is having a network problem.");
-            }
-        })
-        .on("disconnect", () => {
-            toastr.clear();
-            console.log("game disconnect");
-            this.setState({
-                game: null,
-                gameSocket: null,
-            }, () => this.getPlayerStatus());
-        });    
+        this.state.matchConnection.connect(matchId);  
     }
 
     quitMatch() {
-        console.log("disconnect match");
-        if (this.state.gameSocket) {
-            this.state.gameSocket.emit("QUIT", "");
-            this.state.gameSocket.disconnect();
-            this.setState({
-                gameSocket: null,
-                game: null,
-            });
-        }
+        this.state.matchConnection.quit();
     }
 
     // Send actions to server
     play(color, x, y) {
-        if (!this.state.gameSocket) return;
-        console.log(color, x, y);
-        let action = {
+        this.state.matchConnection.sendAction({
             type: "PLAY",
             x, y,
-        }
-        this.state.gameSocket.emit("ACTION", JSON.stringify(action));
+        });
     }
     undo() {
-        if (!this.state.gameSocket) return;
-        let action = {
+        this.state.matchConnection.sendAction({
             type: "UNDO",
             playerId: this.state.playerId,
-        }
-        this.state.gameSocket.emit("ACTION", JSON.stringify(action));
+        });
     }
     newGame() {
-        if (!this.state.gameSocket) return;
-        let action = {
+        this.state.matchConnection.sendAction({
             type: "NEW_GAME",
             playerId: this.state.playerId,
-        }
-        this.state.gameSocket.emit("ACTION", JSON.stringify(action));
-    }
-
-    // Apply actions to client version of the game
-    setLatest(game) {
-        this.setState({
-            game: game,
         })
-    }
-    performAction(action) {
-        let next = this.state.game.act(action);
-        if (next !== null) {
-            this.setState({
-                game: next,
-            });
-        }        
     }
 
     // Render
